@@ -1,6 +1,8 @@
 import json
 import os
 import uuid
+import logging
+from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from models import CanonicalProfile, create_empty_canonical
@@ -13,38 +15,49 @@ WEIGHT_GITHUB = 0.7
 def load_ats_source(file_path: str) -> List[Dict[str, Any]]:
     """Detects issues and extracts raw payloads from the ATS source file."""
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-        print(f"[WARNING] Detect Stage: ATS source '{file_path}' is missing or empty. Skipping.")
+        logging.warning(f"Detect Stage: ATS source '{file_path}' is missing or empty. Skipping.")
         return []
     try:
         with open(file_path, 'r') as f:
             data = json.load(f)
             if not isinstance(data, list):
-                print("[WARNING] Extract Stage: ATS payload must be a JSON array. Skipping.")
+                logging.warning("Extract Stage: ATS payload must be a JSON array. Skipping.")
                 return []
             return data
     except json.JSONDecodeError:
-        print(f"[WARNING] Detect Stage: ATS source '{file_path}' contains malformed JSON. Skipping.")
+        logging.warning(f"Detect Stage: ATS source '{file_path}' contains malformed JSON. Skipping.")
         return []
 
 def load_github_source(file_path: str) -> Optional[Dict[str, Any]]:
     """Detects issues and extracts raw payload from the GitHub API source file."""
     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-        print(f"[WARNING] Detect Stage: GitHub source '{file_path}' is missing or empty. Skipping.")
+        logging.warning(f"Detect Stage: GitHub source '{file_path}' is missing or empty. Skipping.")
         return None
     try:
         with open(file_path, 'r') as f:
             data = json.load(f)
             if not isinstance(data, dict):
-                print("[WARNING] Extract Stage: GitHub payload must be a JSON object. Skipping.")
+                logging.warning("Extract Stage: GitHub payload must be a JSON object. Skipping.")
                 return None
             return data
     except json.JSONDecodeError:
-        print(f"[WARNING] Detect Stage: GitHub source '{file_path}' contains malformed JSON. Skipping.")
+        logging.warning(f"Detect Stage: GitHub source '{file_path}' contains malformed JSON. Skipping.")
         return None
 
 def add_provenance(profile: CanonicalProfile, field: str, source: str, method: str):
     """Helper to append to the provenance array."""
     profile.provenance.append({"field": field, "source": source, "method": method})
+
+def parse_date(date_str: Any) -> Optional[datetime]:
+    if not date_str or str(date_str).lower() == "present":
+        return datetime.now()
+    d_str = str(date_str).strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m", "%Y"):
+        try:
+            return datetime.strptime(d_str, fmt)
+        except ValueError:
+            pass
+    return None
 
 def merge_and_build_profile(ats_data: List[Dict], github_data: Dict) -> CanonicalProfile:
     """Merges sources, resolves conflicts, and tracks provenance."""
@@ -89,6 +102,7 @@ def merge_and_build_profile(ats_data: List[Dict], github_data: Dict) -> Canonica
 
     # 3. Experience (ATS)
     if ats.get("history"):
+        valid_intervals = []
         for job in ats["history"]:
             profile.experience.append({
                 "company": job.get("company"),
@@ -97,17 +111,31 @@ def merge_and_build_profile(ats_data: List[Dict], github_data: Dict) -> Canonica
                 "end": job.get("end_date") if job.get("end_date") else "Present",
                 "summary": job.get("description")
             })
+            start_dt = parse_date(job.get("start_date"))
+            end_dt = parse_date(job.get("end_date"))
+            
+            if start_dt and end_dt and start_dt <= end_dt:
+                valid_intervals.append([start_dt, end_dt])
+                
         add_provenance(profile, "experience", "ats_input.json", "exact_extraction")
         
-        # Simple MVP Years Experience calc with date clamping
-        valid_roles = 0
-        for job in profile.experience:
-            start = job["start"]
-            end = job["end"]
-            if start and end and end != "Present" and end < start:
-                continue
-            valid_roles += 1
-        profile.years_experience = valid_roles * 2 # Mocking 2 years per role for speed
+        # Merge overlapping intervals for years_experience
+        if valid_intervals:
+            valid_intervals.sort(key=lambda x: x[0])
+            merged = [valid_intervals[0]]
+            for current in valid_intervals[1:]:
+                last = merged[-1]
+                if current[0] <= last[1]:
+                    last[1] = max(last[1], current[1])
+                else:
+                    merged.append(current)
+            
+            total_months = 0
+            for start, end in merged:
+                months = (end.year - start.year) * 12 + (end.month - start.month)
+                total_months += months
+            
+            profile.years_experience = round(total_months / 12.0, 1)
 
     # 4. Skills & Links (GitHub wins on Technical per design doc)
     if gh.get("languages"):
@@ -129,19 +157,19 @@ def merge_and_build_profile(ats_data: List[Dict], github_data: Dict) -> Canonica
         add_provenance(profile, "headline", "github_input.json", "exact_extraction")
 
     # 5. Overall Confidence Calculation
-    # Based on the design doc: sum of (Presence * Weight) / Sum of Weights
-    total_weight = 0
-    earned_weight = 0
-    
-    # If ATS contributed contact/history
-    if profile.emails or profile.experience:
-        total_weight += WEIGHT_ATS
-        earned_weight += WEIGHT_ATS
-    # If GitHub contributed skills
+    # 5 core categories: Contact, Experience, Skills, Education, Links (0.2 each)
+    categories_present = 0
+    if profile.emails or profile.phones:
+        categories_present += 1
+    if profile.experience:
+        categories_present += 1
     if profile.skills:
-        total_weight += WEIGHT_GITHUB
-        earned_weight += WEIGHT_GITHUB
+        categories_present += 1
+    if profile.education:
+        categories_present += 1
+    if profile.links.portfolio or profile.links.github or profile.links.linkedin or profile.links.other:
+        categories_present += 1
         
-    profile.overall_confidence = round(earned_weight / total_weight, 2) if total_weight > 0 else 0.0
+    profile.overall_confidence = round(categories_present * 0.2, 1)
 
     return profile

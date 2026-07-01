@@ -32,6 +32,16 @@ Run the pipeline via the command line, passing in your input sources and your de
 python main.py --ats ats_input.json --github github_input.json --config runtime_config.json --output final_profile.json
 ```
 
+> **Note**: After execution, the resulting projected canonical profile will be saved to `final_profile.json` as the sample output.
+
+## Testing
+
+A standard Python test suite is included to verify graceful degradation, phone normalization, and interval-based date mathematics. To run the tests:
+
+```bash
+python -m unittest test_pipeline.py
+```
+
 ## Features & Edge Cases Handled
 
 - **Graceful Degradation:** The Detect stage intercepts malformed JSON or missing files without crashing the pipeline, allowing the merge engine to build profiles from surviving sources.
