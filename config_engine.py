@@ -1,3 +1,4 @@
+import re
 from typing import Dict
 from normalize import normalize_phone
 
@@ -13,10 +14,15 @@ def apply_config(profile: Dict, config: Dict) -> Dict:
         
         val = None
         # Minimal path resolution for the MVP (handling the specific array indices)
-        if source_path == "emails[0]" and profile.get("emails"):
-            val = profile["emails"][0]
-        elif source_path == "phones[0]" and profile.get("phones"):
-            val = profile["phones"][0]
+        match = re.match(r"^([a-zA-Z_]+)\[(\d+)\]$", source_path)
+        if match:
+            field_name = match.group(1)
+            index = int(match.group(2))
+            arr = profile.get(field_name)
+            if isinstance(arr, list) and index < len(arr):
+                val = arr[index]
+            else:
+                val = None
         elif source_path == "skills[].name" and profile.get("skills"):
             val = [s["name"] for s in profile["skills"]]
         else:

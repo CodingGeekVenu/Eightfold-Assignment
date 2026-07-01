@@ -64,7 +64,14 @@ def merge_and_build_profile(ats_data: List[Dict], github_data: Dict) -> Canonica
     if primary_email:
         profile.candidate_id = str(uuid.uuid5(uuid.NAMESPACE_URL, primary_email))
     else:
-        profile.candidate_id = str(uuid.uuid4()) # Fallback
+        name = ats.get("name", "")
+        phones = ats.get("phones", [])
+        phone = phones[0] if phones else ""
+        if name or phone:
+            fallback_string = f"{name}_{phone}".lower()
+            profile.candidate_id = str(uuid.uuid5(uuid.NAMESPACE_URL, fallback_string))
+        else:
+            profile.candidate_id = str(uuid.uuid4()) # Fallback
 
     # 2. Name & Contact (ATS wins on contact info per design doc)
     if ats.get("name"):
@@ -72,12 +79,12 @@ def merge_and_build_profile(ats_data: List[Dict], github_data: Dict) -> Canonica
         add_provenance(profile, "full_name", "ats_input.json", "exact_extraction")
     
     if ats.get("emails"):
-        profile.emails = list(set(ats["emails"]))
+        profile.emails = sorted(list(set(ats["emails"])))
         add_provenance(profile, "emails", "ats_input.json", "exact_extraction")
         
     if ats.get("phones"):
         normalized_phones = [normalize_phone(p) for p in ats["phones"] if p]
-        profile.phones = list(set(normalized_phones))
+        profile.phones = sorted(list(set(normalized_phones)))
         add_provenance(profile, "phones", "ats_input.json", "normalized_E164")
 
     # 3. Experience (ATS)
@@ -92,15 +99,20 @@ def merge_and_build_profile(ats_data: List[Dict], github_data: Dict) -> Canonica
             })
         add_provenance(profile, "experience", "ats_input.json", "exact_extraction")
         
-        # Simple MVP Years Experience calc (Count of roles)
-        profile.years_experience = len(profile.experience) * 2 # Mocking 2 years per role for speed
+        # Simple MVP Years Experience calc with date clamping
+        valid_roles = 0
+        for job in profile.experience:
+            start = job["start"]
+            end = job["end"]
+            if start and end and end != "Present" and end < start:
+                continue
+            valid_roles += 1
+        profile.years_experience = valid_roles * 2 # Mocking 2 years per role for speed
 
     # 4. Skills & Links (GitHub wins on Technical per design doc)
-    canonical_skills = set()
     if gh.get("languages"):
-        for lang in gh["languages"]:
-            norm_lang = normalize_skill(lang)
-            canonical_skills.add(norm_lang)
+        sorted_canonical_skills = sorted(list(set(normalize_skill(lang) for lang in gh["languages"])))
+        for norm_lang in sorted_canonical_skills:
             profile.skills.append({
                 "name": norm_lang, 
                 "confidence": WEIGHT_GITHUB, 
