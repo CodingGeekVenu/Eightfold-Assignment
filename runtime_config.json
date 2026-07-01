@@ -7,5 +7,5 @@
   ],
   "include_confidence": true,
   "include_provenance": false,
-  "on_missing": "null"
+  "on_missing": "omit"
 }
