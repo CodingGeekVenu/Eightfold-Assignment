@@ -2,7 +2,7 @@
 
 **Candidate:** Venumadhav S.  
 **Role:** Engineering Intern (Jul-Dec 2026)  
-**Demo Video:** [Insert Your Unlisted YouTube/Drive Link Here]
+**Demo Video:** 
 
 ## Overview
 This repository contains a deterministic, rule-based ETL pipeline built in Python 3. It ingests candidate data from varied structured and unstructured sources, normalizes formats, resolves conflicts deterministically, and projects the data into a canonical schema based on a dynamic runtime configuration.
