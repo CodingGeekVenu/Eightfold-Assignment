@@ -20,7 +20,7 @@ Ensure you have Python 3.8+ installed.
 
 1. **Clone the repository and create a virtual environment:**
    ```bash
-   git clone <your-repo-url>
+   git clone https://github.com/CodingGeekVenu/Eightfold-Assignment.git
    cd eightfold-data-transformer
    python -m venv venv
    ```
