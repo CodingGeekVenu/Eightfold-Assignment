@@ -157,19 +157,17 @@ def merge_and_build_profile(ats_data: List[Dict], github_data: Dict) -> Canonica
         add_provenance(profile, "headline", "github_input.json", "exact_extraction")
 
     # 5. Overall Confidence Calculation
-    # 5 core categories: Contact, Experience, Skills, Education, Links (0.2 each)
-    categories_present = 0
-    if profile.emails or profile.phones:
-        categories_present += 1
-    if profile.experience:
-        categories_present += 1
+    # Based on the design doc: sum of (Presence * Weight) / Sum of Weights
+    all_possible_weight = WEIGHT_ATS + WEIGHT_GITHUB
+    earned = 0
+    
+    # If ATS contributed contact/history
+    if profile.emails or profile.experience:
+        earned += WEIGHT_ATS
+    # If GitHub contributed skills
     if profile.skills:
-        categories_present += 1
-    if profile.education:
-        categories_present += 1
-    if profile.links.portfolio or profile.links.github or profile.links.linkedin or profile.links.other:
-        categories_present += 1
+        earned += WEIGHT_GITHUB
         
-    profile.overall_confidence = round(categories_present * 0.2, 1)
+    profile.overall_confidence = round(earned / all_possible_weight, 2)
 
     return profile
